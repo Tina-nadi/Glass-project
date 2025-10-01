@@ -1,0 +1,5 @@
+train: C:/Users/Lenovo/Desktop/New folder/Blind-Assistant-1/train/images
+val: C:/Users/Lenovo/Desktop/New folder/Blind-Assistant-1/valid/images
+
+nc: 2  # ← تعداد کلاس‌ها رو بر اساس دیتاستت بزن
+names: ["object1", "object2"]  # ← نام کلاس‌ها رو از data.yaml اصلی روبوفلو کپی کن
