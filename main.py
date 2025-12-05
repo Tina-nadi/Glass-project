@@ -1,37 +1,37 @@
 import cv2
-import sqlite3
 import time
+import mysql.connector
 import os
 import threading
 import pyttsx3
+
+engine = pyttsx3.init()
+
+engine.setProperty('voice', 'HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Speech\\Voices\\Tokens\\MSTTS_V110_faIR_Hoda')
+engine.setProperty('rate', 150)
 import easyocr
 from ultralytics import YOLO
 
 # --- مسیر فایل‌ها ---
 YOLO_MODEL_PATH = "yolov8n.pt"  # مدل YOLOv8
-DB_PATH = "detections.db"       # دیتابیس
 TEMP_IMAGE_PATH = "temp_frame.jpg"
 TEMP_AUDIO_PATH = "temp_audio.mp3"
 
-# --- اتصال به دیتابیس ---
-conn = sqlite3.connect(DB_PATH)
+# اتصال به دیتابیس
+conn = mysql.connector.connect(
+    host="localhost",
+    user="root",
+    password="",
+    database="Glass-project"
+)
 cursor = conn.cursor()
 
-cursor.execute('''
-CREATE TABLE IF NOT EXISTS detections (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    label TEXT,
-    confidence REAL,
-    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-)
-''')
-conn.commit()
 
 # --- بارگذاری مدل YOLOv8 ---
 model = YOLO(YOLO_MODEL_PATH)
 
 # --- OCR و TTS ---
-reader = easyocr.Reader(['en'])  # فارسی اگر بخوای اضافه کنی: ['fa','en']
+reader = easyocr.Reader(['fa', 'en'])
 engine = pyttsx3.init()
 
 # --- مدیریت آخرین زمان ثبت اشیا ---
@@ -55,10 +55,10 @@ def run_object_detection(frame):
 
             if label not in last_seen or (now - last_seen[label]) > 2:
                 cursor.execute(
-                    "INSERT INTO detections (label, confidence) VALUES (?, ?)",
-                    (label, conf)
+                    "INSERT INTO Data (detect_obj_name, time) VALUES (%s, %s)",
+                    (label, int(time.time()))
                 )
-                conn.commit()
+                conn.commit()  # اجرای کوئری
                 last_seen[label] = now
                 print(f"Saved: {label} ({conf:.2f})")
 
@@ -66,29 +66,35 @@ def run_object_detection(frame):
     return annotated_frame
 
 def text_to_speech(text):
-    global stop_audio_flag
-    stop_audio_flag = False
-    engine.save_to_file(text, TEMP_AUDIO_PATH)
+    engine.say(text)
     engine.runAndWait()
-    # پخش صوت
-    os.system(f'start /min wmplayer "{TEMP_AUDIO_PATH}"')  # برای ویندوز
 
 def run_ocr_and_tts(image_path):
     global processing_temp
     img = cv2.imread(image_path)
-    result = reader.readtext(img)
+
+    # OCR فارسی + انگلیسی
+    result = reader.readtext(img, detail=1, paragraph=True)
+
     text = " ".join([res[1] for res in result])
     if not text.strip():
         text = "⚠️ متنی برای خواندن پیدا نشد!"
+
+    cursor.execute(
+        "INSERT INTO DataText (detected_text, time) VALUES (%s, %s)",
+        (text.encode("utf-8"), int(time.time()))
+    )
+    conn.commit()
+
     print(f"📝 متن استخراج‌شده:\n{text}\n")
+
     processing_temp = True
     text_to_speech(text)
+
 
 def main():
     global processing_temp, stop_audio_flag
     cap = cv2.VideoCapture(0)
-    temp_frame_saved = False
-
     while True:
         ret, frame = cap.read()
         if not ret:
@@ -120,7 +126,6 @@ def main():
                 processing_temp = False
 
     cap.release()
-    conn.close()
     cv2.destroyAllWindows()
 
 if __name__ == "__main__":
